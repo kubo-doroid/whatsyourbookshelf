@@ -18,6 +18,7 @@
 mono_crash.*
 
 # Build results
+bin/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
@@ -416,3 +417,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# VSCode server
+.vscode-server/
+
+# .NET 関連
+.dotnet/
