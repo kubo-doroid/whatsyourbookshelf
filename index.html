@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Floating Bookshelf</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&family=Zen+Kaku+Gothic+New:wght@300;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* --- ベース設定 --- */
+        :root { 
+            --bg-wall: #e8e8e8; 
+            --text-main: #333; 
+            --accent: #1e1e1e;
+        }
+        body {
+            font-family: 'Poppins', 'Zen Kaku Gothic New', sans-serif;
+            background-color: var(--bg-wall); 
+            color: var(--text-main);
+            margin: 0; padding: 0; height: 100vh; overflow: hidden;
+            -webkit-tap-highlight-color: transparent; /* モバイルでのタップハイライトを消す */
+        }
+
+        /* --- ヘッダー --- */
+        header {
+            position: absolute; top: 0; left: 0; width: 100%; text-align: center;
+            padding: 30px; z-index: 10; pointer-events: none;
+            background: linear-gradient(to bottom, rgba(232,232,232,1), rgba(232,232,232,0));
+        }
+        h1 { 
+            font-size: 1.8rem; margin-bottom: 5px; color: var(--accent); 
+            font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+        }
+        .subtitle { 
+            font-size: 0.85rem; color: #666; letter-spacing: 0.05em; font-weight: 300;
+        }
+
+        #canvas-container { width: 100%; height: 100vh; display: block; touch-action: none; /* ブラウザのスクロール無効化 */ }
+
+        /* --- 詳細情報パネル --- */
+        #info-panel {
+            position: absolute;
+            top: 50%; right: 10%;
+            transform: translateY(-50%);
+            width: 320px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 40px 30px;
+            border-radius: 4px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            border-left: 4px solid var(--accent);
+            z-index: 100;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+            pointer-events: none;
+        }
+        
+        #info-panel.active {
+            opacity: 1;
+            visibility: visible;
+            right: 15%; 
+            pointer-events: auto;
+        }
+
+        /* パネル内要素 */
+        .info-label { font-size: 0.7rem; letter-spacing: 0.2em; color: #999; margin-bottom: 10px; font-weight: 500; text-transform: uppercase;}
+        .info-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 5px; line-height: 1.3; color: #222; }
+        .info-meta { font-size: 0.8rem; color: #666; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #ddd; font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 300; }
+        .info-comment { font-size: 0.9rem; line-height: 1.8; color: #444; margin-bottom: 25px; font-weight: 300; }
+        
+        .info-close-btn {
+            display: inline-block; padding: 10px 0; color: #888; text-decoration: none; font-size: 0.8rem; font-weight: 500; cursor: pointer; transition: color 0.3s; border-bottom: 1px solid transparent; text-transform: uppercase;
+        }
+        .info-close-btn:hover { color: var(--accent); border-bottom: 1px solid var(--accent); }
+
+        .amazon-link {
+            display: block; margin-top: 10px; font-size: 0.8rem; color: var(--accent); text-decoration: none; font-weight: 500; text-transform: uppercase;
+        }
+
+        /* 本画像（パネル用） */
+        .panel-cover-img {
+            width: 80px; height: auto; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); display: none; /* デスクトップでは隠す */
+        }
+
+        /* 背景クリックエリア */
+        #backdrop-click-area {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 90; display: none; cursor: zoom-out;
+        }
+        #backdrop-click-area.active { display: block; }
+        
+        /* メニューバー */
+        #menu-button {
+            position: fixed; top: 30px; right: 30px; width: 40px; height: 30px; cursor: pointer; z-index: 200;
+            display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+        }
+        #menu-button span { display: block; height: 3px; background-color: var(--accent); border-radius: 2px; transition: all 0.3s ease; }
+        #menu-button span:nth-child(1) { width: 100%; }
+        #menu-button span:nth-child(2) { width: 80%; }
+        #menu-button span:nth-child(3) { width: 100%; }
+
+        /* サイドメニュー */
+        #side-menu {
+            position: fixed; top: 0; right: -300px; width: 300px; height: 100vh;
+            background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(10px);
+            box-shadow: -5px 0 20px rgba(0,0,0,0.1); z-index: 190;
+            transition: right 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+            padding-top: 80px; pointer-events: none;
+        }
+        #side-menu.active { right: 0; pointer-events: auto; }
+        #side-menu ul { list-style: none; padding: 0; margin: 0; }
+        #side-menu ul li a {
+            display: block; padding: 15px 30px; color: var(--text-main); text-decoration: none;
+            font-size: 1rem; font-weight: 500; transition: background-color 0.3s, color 0.3s;
+        }
+        #side-menu ul li a:hover { background-color: var(--accent); color: #fff; }
+
+
+        /* ★モバイル調整 */
+        @media (max-width: 768px) {
+            h1 { font-size: 1.4rem; }
+            .subtitle { font-size: 0.75rem; }
+            
+            /* パネルを画面下部に配置 */
+            #info-panel {
+                top: auto; bottom: 0; left: 0; right: 0;
+                width: 100%; max-width: 100%; height: auto;
+                max-height: 80vh; overflow-y: auto;
+                margin: 0; padding: 25px;
+                border-radius: 15px 15px 0 0;
+                border-left: none;
+                box-shadow: 0 -5px 20px rgba(0,0,0,0.1);
+                background: #fff;
+                transform: translateY(100%); /* 初期状態は下に隠す */
+            }
+
+            #info-panel.active {
+                right: 0; left: 0;
+                transform: translateY(0); /* 下からスライドイン */
+            }
+            
+            header { display: none; } /* モバイルではヘッダーを消して広さを確保 */
+
+            #backdrop-click-area.active { background-color: rgba(0, 0, 0, 0.3); }
+
+            #menu-button { top: 20px; right: 20px; width: 35px; height: 25px; }
+            #menu-button span { height: 2.5px; }
+
+            .panel-cover-img { display: block; width: 60px; float: right; margin-left: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Floating Bookshelf</h1>
+        <p class="subtitle">Click a book to pull it out.</p>
+    </header>
+
+    <div id="canvas-container"></div>
+    <div id="backdrop-click-area"></div>
+
+    <div id="info-panel">
+        <img id="p-img" src="" alt="" class="panel-cover-img">
+        <div class="info-label">Selection</div>
+        <h2 class="info-title" id="p-title">Title</h2>
+        <div class="info-meta">
+            <span id="p-author">Author</span> // <span id="p-publisher">Publisher</span>
+        </div>
+        <div class="info-comment" id="p-comment">Comment</div>
+        <div class="info-close-btn" id="close-btn">Close</div>
+        <a href="#" id="p-link" target="_blank" class="amazon-link">Check on Amazon &rarr;</a>
+    </div>
+
+    <div id="menu-button">
+        <span></span><span></span><span></span>
+    </div>
+
+    <div id="side-menu">
+        <ul>
+            <li><a href="#">About</a></li>
+            <li><a href="#">Favorites</a></li>
+            <li><a href="#">Categories</a></li>
+            <li><a href="#">Contact</a></li>
+        </ul>
+    </div>
+
+    <script>
+        // --- データ定義 (テクスチャ用にBase64プレースホルダーを設定) ---
+        // 実際の画像URLに置き換えて使用してください。
+        const placeholderCover = "https://placehold.co/300x450/333333/ffffff?text=Cover";
+        
+        const myBooks = [
+            { title: "センス・オブ・ワンダー", author: "レイチェル・カーソン", publisher: "新潮社", color: "#27ae60", height: 90, width: 45, comment: "自然の神秘に目を見張る感性。大人になってからこそ読むべき一冊です。", link: "#", cover: placeholderCover },
+            { title: "ハイキュー!!", author: "古舘春一", publisher: "集英社", color: "#e67e22", height: 82, width: 30, comment: "仕事のモチベーションが上がらない時に読みます。チームとは何かを教えてくれる。", link: "#", cover: placeholderCover },
+            { title: "暇と退屈の倫理学", author: "國分功一郎", publisher: "新潮社", color: "#2c3e50", height: 95, width: 50, comment: "人生の余白をどう楽しむか。退屈という言葉の解像度が上がりました。", link: "#", cover: placeholderCover },
+            { title: "FACTFULNESS", author: "ハンス・ロスリング", publisher: "日経BP", color: "#f39c12", textColor: "#333", height: 92, width: 48, comment: "データを正しく見ることで、世界は思っているより悪くないと気づけます。", link: "#", cover: placeholderCover },
+            { title: "アルケミスト", author: "パウロ・コエーリョ", publisher: "KADOKAWA", color: "#8e44ad", height: 88, width: 38, comment: "夢を追う旅の物語。何かに迷った時の指針になる本です。", link: "#", cover: placeholderCover },
+            { title: "デザインのデザイン", author: "原研哉", publisher: "岩波書店", color: "#ecf0f1", textColor: "#333", height: 86, width: 42, comment: "「白」の概念が変わる。思考を整理したい時におすすめ。", link: "#", cover: placeholderCover },
+            { title: "考える技術・書く技術", author: "バーバラ・ミント", publisher: "ダイヤモンド社", color: "#95a5a6", height: 98, width: 55, comment: "論理的な文章構成を学ぶためのバイブル。仕事の効率が格段に上がります。", link: "#", cover: placeholderCover },
+            { title: "サピエンス全史", author: "ユヴァル・ノア・ハラリ", publisher: "河出書房新社", color: "#e74c3c", height: 97, width: 60, comment: "人類の歴史を壮大なスケールで捉え直す。世界観が変わります。", link: "#", cover: placeholderCover },
+            { title: "夜は短し歩けよ乙女", author: "森見登美彦", publisher: "KADOKAWA", color: "#3498db", height: 85, width: 35, comment: "ファンタジーと青春が交差する京都の夜。読後の高揚感が最高。", link: "#", cover: placeholderCover },
+            { title: "君たちはどう生きるか", author: "吉野源三郎", publisher: "マガジンハウス", color: "#2ecc71", height: 91, width: 47, comment: "時代を超えて読まれる名作。生き方を考えさせてくれる。", link: "#", cover: placeholderCover },
+            { title: "沈黙の春", author: "レイチェル・カーソン", publisher: "新潮社", color: "#1abc9c", height: 93, width: 49, comment: "環境問題の原点。今読んでも全く色褪せない重要な警告。", link: "#", cover: placeholderCover },
+            { title: "星の王子さま", author: "サン＝テグジュペリ", publisher: "岩波書店", color: "#f1c40f", textColor: "#333", height: 75, width: 28, comment: "大切なものは目に見えない。大人になって何度も読み返す愛読書。", link: "#", cover: placeholderCover },
+        ];
+
+        let scene, camera, renderer, controls;
+        const booksMeshes = [];
+        const bookshelfGroup = new THREE.Group();
+        const raycaster = new THREE.Raycaster();
+        
+        let hoveredBook = null;
+        let focusedBook = null; 
+        let originalTransforms = new Map(); 
+
+        // カメラ位置
+        const CAMERA_DEFAULT_POS = new THREE.Vector3(0, 1.8, 12); 
+
+        // タッチ操作判定用
+        let pointerStartX = 0;
+        let pointerStartY = 0;
+        let pointerStartTime = 0;
+        const TAP_THRESHOLD_DIST = 10; // pixels
+        const TAP_THRESHOLD_TIME = 300; // ms
+
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xe8e8e8); 
+            scene.fog = new THREE.Fog(0xe8e8e8, 10, 25);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.copy(CAMERA_DEFAULT_POS);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio); // 解像度対応
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 5;
+            controls.maxDistance = 25;
+            controls.maxPolarAngle = Math.PI / 2; // 地面以下に行かない
+            controls.target.set(0, 1.5, 0);
+
+            // ライティング
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const spotLight = new THREE.SpotLight(0xffffff, 0.8);
+            spotLight.position.set(5, 8, 5);
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 2048;
+            spotLight.shadow.mapSize.height = 2048;
+            scene.add(spotLight);
+            const fillLight = new THREE.DirectionalLight(0xffeedd, 0.4);
+            fillLight.position.set(-5, 3, 5);
+            scene.add(fillLight);
+
+            // 床
+            const floor = new THREE.Mesh(
+                new THREE.PlaneGeometry(100, 100),
+                new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.9, metalness: 0.1 })
+            );
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            createBooks3D();
+            scene.add(bookshelfGroup);
+
+            window.addEventListener('resize', onWindowResize);
+            
+            // ポインターイベント (マウス・タッチ共通)
+            container.addEventListener('pointerdown', onPointerDown);
+            container.addEventListener('pointerup', onPointerUp);
+            container.addEventListener('pointermove', onPointerMove);
+
+            animate();
+        }
+
+        function createBooks3D() {
+            let totalWidth = 0;
+            myBooks.forEach(b => totalWidth += (b.width/100) + 0.05);
+            let currentX = -totalWidth / 2;
+
+            // テクスチャローダー
+            const loader = new THREE.TextureLoader();
+
+            myBooks.forEach((bookData) => {
+                const bHeight = (bookData.height / 100) * 3.5; 
+                const bWidth = bookData.width / 100; // 厚み (X軸)
+                const bDepth = bHeight * 0.72; // カバー幅 (Z軸)
+
+                // ジオメトリ: (幅, 高さ, 奥行き) = (厚み, 高さ, カバー幅)
+                const geometry = new THREE.BoxGeometry(bWidth, bHeight, bDepth);
+                
+                // 表紙のテクスチャをロード (本来はbookData.coverImage等)
+                // プレースホルダーを使用
+                const coverTex = loader.load(bookData.cover);
+
+                // マテリアル定義
+                // 0: Right (+x) -> ここが表紙(Cover)になる面 (引っ張り出したときに正面を向ける)
+                // 1: Left (-x) -> 裏表紙
+                // 2: Top (+y) -> 紙
+                // 3: Bottom (-y) -> 紙
+                // 4: Front (+z) -> 背表紙 (Spine) ※カメラに向いている面
+                // 5: Back (-z) -> 小口 (ページ端)
+
+                const paperMat = new THREE.MeshStandardMaterial({ color: 0xfcfcfc, roughness: 0.9 });
+                const spineMat = new THREE.MeshStandardMaterial({ color: bookData.color, roughness: 0.6 });
+                const coverMat = new THREE.MeshStandardMaterial({ 
+                    color: 0xffffff, 
+                    map: coverTex, // 画像を適用
+                    roughness: 0.6 
+                });
+                const backCoverMat = new THREE.MeshStandardMaterial({ color: bookData.color, roughness: 0.6 });
+
+                const materials = [
+                    coverMat,     // 0: +x (表紙)
+                    backCoverMat, // 1: -x (裏表紙)
+                    paperMat,     // 2: +y
+                    paperMat,     // 3: -y
+                    spineMat,     // 4: +z (背表紙 - 最初に見えている面)
+                    paperMat      // 5: -z (小口)
+                ];
+
+                const bookMesh = new THREE.Mesh(geometry, materials);
+                bookMesh.position.set(currentX + bWidth/2, bHeight/2, 0);
+                
+                bookMesh.castShadow = true;
+                bookMesh.receiveShadow = true;
+                bookMesh.userData = { bookInfo: bookData };
+                
+                originalTransforms.set(bookMesh, {
+                    position: bookMesh.position.clone(),
+                    rotation: bookMesh.rotation.clone()
+                });
+
+                bookshelfGroup.add(bookMesh);
+                booksMeshes.push(bookMesh);
+
+                currentX += bWidth + 0.05;
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 入力イベントハンドラ (タッチ/クリック判定) ---
+
+        function onPointerDown(event) {
+            pointerStartX = event.clientX;
+            pointerStartY = event.clientY;
+            pointerStartTime = performance.now();
+        }
+
+        function onPointerUp(event) {
+            // モーダルが開いているときは3Dクリックを無効化
+            if (focusedBook) {
+                // closeBook(); // 背景クリックで閉じる場合はここを有効化
+                return;
+            }
+
+            const diffX = Math.abs(event.clientX - pointerStartX);
+            const diffY = Math.abs(event.clientY - pointerStartY);
+            const diffTime = performance.now() - pointerStartTime;
+
+            // 移動距離が小さく、時間が短ければ「タップ/クリック」と判定
+            if (diffX < TAP_THRESHOLD_DIST && diffY < TAP_THRESHOLD_DIST && diffTime < TAP_THRESHOLD_TIME) {
+                handleTap(event.clientX, event.clientY);
+            }
+        }
+
+        function onPointerMove(event) {
+            // ホバー判定用 (PCのみ有効にする)
+            if (window.matchMedia('(hover: hover)').matches) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                const mouse = new THREE.Vector2(
+                    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                    -((event.clientY - rect.top) / rect.height) * 2 + 1
+                );
+                
+                if (!focusedBook) {
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(booksMeshes);
+                    if (intersects.length > 0) {
+                        hoveredBook = intersects[0].object;
+                        document.body.style.cursor = 'pointer';
+                    } else {
+                        hoveredBook = null;
+                        document.body.style.cursor = 'default';
+                    }
+                }
+            }
+        }
+
+        function handleTap(clientX, clientY) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            const mouse = new THREE.Vector2(
+                ((clientX - rect.left) / rect.width) * 2 - 1,
+                -((clientY - rect.top) / rect.height) * 2 + 1
+            );
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(booksMeshes);
+            if (intersects.length > 0) {
+                focusBook(intersects[0].object);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            booksMeshes.forEach(book => {
+                if (book === focusedBook) {
+                    // 選択された本: 手前に移動し、表紙(+X)をカメラに向ける
+                    
+                    // カメラから見て左手前
+                    const targetPos = new THREE.Vector3(-1.0, 0.5, -5.0); 
+                    if (window.innerWidth <= 768) {
+                        // モバイルの場合は少し上の方に持ってくる（パネルが下に出るため）
+                        targetPos.set(0, 1.5, -6.0);
+                    }
+                    targetPos.applyMatrix4(camera.matrixWorld);
+                    
+                    const targetQuat = camera.quaternion.clone();
+                    // デフォルト(Spine +Z) から 表紙(+X) を向けるにはY軸に-90度回転
+                    const rotate90 = new THREE.Quaternion();
+                    rotate90.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2); 
+                    targetQuat.multiply(rotate90);
+                    
+                    // モバイルで縦向きの場合、少し傾けると見やすいかも？
+                    // const tilt = new THREE.Quaternion();
+                    // tilt.setFromAxisAngle(new THREE.Vector3(0,0,1), 0.1);
+                    // targetQuat.multiply(tilt);
+
+                    book.position.lerp(targetPos, 0.1);
+                    book.quaternion.slerp(targetQuat, 0.1);
+                } else {
+                    // 非選択の本
+                    const original = originalTransforms.get(book);
+                    let targetZ = original.position.z;
+                    
+                    // PCのみホバーでちょい出し
+                    if (book === hoveredBook && !focusedBook && window.matchMedia('(hover: hover)').matches) {
+                        targetZ = original.position.z + 0.4;
+                    }
+
+                    book.position.x += (original.position.x - book.position.x) * 0.1;
+                    book.position.y += (original.position.y - book.position.y) * 0.1;
+                    book.position.z += (targetZ - book.position.z) * 0.1;
+                    
+                    book.rotation.x += (original.rotation.x - book.rotation.x) * 0.1;
+                    book.rotation.y += (original.rotation.y - book.rotation.y) * 0.1;
+                    book.rotation.z += (original.rotation.z - book.rotation.z) * 0.1;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // --- UI制御 ---
+        const infoPanel = document.getElementById('info-panel');
+        const backdrop = document.getElementById('backdrop-click-area');
+        const menuButton = document.getElementById('menu-button');
+        const sideMenu = document.getElementById('side-menu');
+
+        const pTitle = document.getElementById('p-title');
+        const pAuthor = document.getElementById('p-author');
+        const pPublisher = document.getElementById('p-publisher');
+        const pComment = document.getElementById('p-comment');
+        const pLink = document.getElementById('p-link');
+        const pImg = document.getElementById('p-img');
+
+        function focusBook(book) {
+            focusedBook = book;
+            controls.enabled = false; 
+
+            const info = book.userData.bookInfo;
+            pTitle.innerText = info.title;
+            pAuthor.innerText = info.author;
+            pPublisher.innerText = info.publisher;
+            pComment.innerText = info.comment;
+            pLink.href = info.link;
+            pImg.src = info.cover; // パネル内の画像も更新
+
+            infoPanel.classList.add('active');
+            backdrop.classList.add('active');
+        }
+
+        function closeBook() {
+            if(!focusedBook) return;
+            focusedBook = null;
+            controls.enabled = true; 
+            infoPanel.classList.remove('active');
+            backdrop.classList.remove('active');
+        }
+
+        document.getElementById('close-btn').addEventListener('click', closeBook);
+        backdrop.addEventListener('click', closeBook);
+
+        // メニューバー制御
+        let isMenuOpen = false;
+        menuButton.addEventListener('click', () => {
+            isMenuOpen = !isMenuOpen;
+            if (isMenuOpen) {
+                sideMenu.classList.add('active');
+                // ハンバーガーのアニメーション用クラスなどがあれば追加
+            } else {
+                sideMenu.classList.remove('active');
+            }
+        });
+        
+        // メニュー外クリックで閉じる簡易実装
+        document.addEventListener('click', (e) => {
+            if (isMenuOpen && !sideMenu.contains(e.target) && !menuButton.contains(e.target)) {
+                isMenuOpen = false;
+                sideMenu.classList.remove('active');
+            }
+        });
+
+        initThreeJS();
+    </script>
+</body>
+</html>
